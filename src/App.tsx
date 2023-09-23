@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Form, Input, Select, Space } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
+import { Button, Form, Input, Select, Space, notification } from "antd";
+
+type NotificationType = "success" | "info" | "warning" | "error";
 
 interface Item {
   name: string;
@@ -10,7 +12,16 @@ interface Item {
   parentKey: number | null;
   parentMargin: number;
 }
-
+const jsonViewStyle = {
+  backgroundColor: "#f4f4f4",
+  padding: "10px",
+  borderRadius: "4px",
+  border: "1px solid #ddd",
+  fontFamily: "monospace",
+  fontSize: "14px",
+  whiteSpace: "pre-wrap",
+  maxWidth: "480px",
+};
 const findItemRecursively = (Array: Item[], key: number): Item | null => {
   let item = null;
   for (let i = 0; i < Array.length; i++) {
@@ -25,10 +36,46 @@ const findItemRecursively = (Array: Item[], key: number): Item | null => {
   return item;
 };
 
+const findNameRecursively = (
+  Array: Item[],
+  text: string,
+  parentKey: number | null
+): boolean => {
+  let flag: boolean = false;
+  for (let i = 0; i < Array.length; i++) {
+    const curr = Array[i];
+    if (curr.name === text && curr.parentKey === parentKey) {
+      return true;
+    } else if (curr.children) {
+      flag = findNameRecursively(curr.children, text, parentKey);
+      if (flag) return true;
+    }
+  }
+  return flag;
+};
+const findGlobalRecursively = (Array: Item[]): boolean => {
+  let flag = false;
+  for (let i = 0; i < Array.length; i++) {
+    for (let j = 0; j < Array.length; j++) {
+      if (i == j) continue;
+      if (
+        Array[i].name === Array[j].name &&
+        Array[i].parentKey === Array[i].parentKey
+      ) {
+        return true;
+      } else {
+        flag = findGlobalRecursively(Array[j].children);
+        if (flag) return true;
+      }
+    }
+  }
+  return flag;
+};
+
 const Field: React.FC<{
   item: Item;
   handleRemoveItem: (key: number | null) => void;
-  handleAddItem: (index: number | null, type: string) => void;
+  handleAddItem: (index: number | null, type: string,fieldText:HTMLElement|null) => void;
   itemList: Item[];
   setItemList: React.Dispatch<React.SetStateAction<Item[]>>;
 }> = ({ item, handleRemoveItem, handleAddItem, itemList, setItemList }) => {
@@ -36,7 +83,6 @@ const Field: React.FC<{
     <div
       style={{
         marginLeft: `${item.parentMargin}px`,
-        // border:'1px solid black'
       }}
     >
       <div
@@ -78,9 +124,9 @@ const Field: React.FC<{
               }
             }}
           >
-            <option value="number">number</option>
-            <option value="string">string</option>
-            <option value="nested">nested</option>
+            <Select.Option value="number">number</Select.Option>
+            <Select.Option value="string">string</Select.Option>
+            <Select.Option value="nested">nested</Select.Option>
           </Select>
           <Form.Item style={{ flex: 1 }}>
             <Button danger onClick={() => handleRemoveItem(item.key)} block>
@@ -102,10 +148,21 @@ const Field: React.FC<{
         ))}
       {item.type === "nested" && (
         <div>
-          <Form.Item style={{ maxWidth: `${530+item.parentMargin}px`,paddingLeft:`${item.parentMargin+30}px` }}>
+          <Form.Item
+            style={{
+              maxWidth: `${540 + item.parentMargin}px`,
+              paddingLeft: `${item.parentMargin + 40}px`,
+            }}
+          >
             <Button
               type="primary"
-              onClick={() => handleAddItem(item.key, "number")}
+              onClick={() =>
+                handleAddItem(
+                  item.key,
+                  "number",
+                  document.getElementById("FieldText")
+                )
+              }
               block
               icon={<PlusOutlined />}
             >
@@ -119,21 +176,35 @@ const Field: React.FC<{
 };
 
 const App: React.FC = () => {
+  const [api, contextHolder] = notification.useNotification();
+
+  const openNotificationWithIcon = (
+    type: NotificationType,
+    message: string,
+    description: string
+  ) => {
+    api[type]({
+      message,
+      description,
+    });
+  };
+
   const [itemList, setItemList] = useState<Item[]>([]);
   const [counter, setCounter] = useState<number>(0);
   const [option, setOption] = useState("number");
   const [isAddingItem, setIsAddingItem] = useState<boolean>(false);
   const [text, setText] = useState<string>("");
   const [jsonView, setJsonView] = useState<string>("");
-  const [status,setStatus]=useState<boolean>(false)
+  const [status, setStatus] = useState<boolean>(false);
 
   useEffect(() => {
     updateJsonView();
   }, [itemList]);
-  const processItem = (item) => {
+
+  const processItem = (item:Item) => {
     if (item.type === "nested") {
       const result = {
-        [item.name]: {}, 
+        [item.name]: {},
       };
       for (const child of item.children) {
         Object.assign(result[item.name], processItem(child));
@@ -145,7 +216,7 @@ const App: React.FC = () => {
       };
     }
   };
-  
+
   const updateJsonView = () => {
     const result = {};
     for (const item of itemList) {
@@ -153,10 +224,29 @@ const App: React.FC = () => {
     }
     setJsonView(JSON.stringify(result, null, 2));
   };
-  
 
-  const handleAddItem = (parentKey: number | null, type: string): void => {
+  const handleAddItem = (
+    parentKey: number | null,
+    type: string,
+    fieldText: string
+  ): void => {
     if (isAddingItem) {
+      return;
+    }
+    if (findNameRecursively(itemList, text, parentKey)) {
+      openNotificationWithIcon(
+        "error",
+        "Duplicate keys",
+        "Element contains duplicate key name."
+      );
+      return;
+    }
+    if (findGlobalRecursively(itemList)) {
+      openNotificationWithIcon(
+        "error",
+        "Duplicate keys",
+        "Element contains duplicate key name. Please change the field title."
+      );
       return;
     }
     setIsAddingItem(true);
@@ -176,15 +266,30 @@ const App: React.FC = () => {
       setItemList(updatedItemList);
     } else {
       const parentItem = findItemRecursively(itemList, parentKey);
-      if (parentItem) {
+      if (
+        parentItem &&
+        (fieldText != "" ||
+          (fieldText == "" && parentItem.children.length === 0))
+      ) {
         newItem = {
-          name: text,
+          name: fieldText ? fieldText : "",
           type,
           key: counter,
           parentKey,
           children: [],
-          parentMargin: parentItem.parentMargin + 30,
+          parentMargin: parentItem.parentMargin + 40,
         };
+
+        if (findNameRecursively(parentItem.children, text, parentKey)) {
+          openNotificationWithIcon(
+            "error",
+            "Duplicate keys",
+            "Element contains duplicate key name."
+          );
+          return;
+          setIsAddingItem(false);
+          return;
+        }
         parentItem.children.push(newItem);
       } else {
         setIsAddingItem(false);
@@ -196,23 +301,37 @@ const App: React.FC = () => {
     setCounter(counter + 1);
     setIsAddingItem(false);
     setText("");
+    if (findGlobalRecursively(itemList)) {
+      openNotificationWithIcon(
+        "error",
+        "Duplicate keys",
+        "Element contains duplicate key name. Please change the field title."
+      );
+      return;
+    }
   };
 
   const handleRemoveItem = (key: number | null): void => {
-    const updatedItemList = [...itemList];
-    if (key !== null) {
-      const index = updatedItemList.findIndex((item) => item.key === key);
-      if (index !== -1) updatedItemList.splice(index, 1);
-    }
+    const updatedItemList = removeItemRecursively([...itemList], key);
     setItemList(updatedItemList);
   };
+  const removeItemRecursively = (
+    items: Item[],
+    keyToRemove: number | null
+  ): Item[] => {
+    return items.filter((item) => {
+      if (item.key === keyToRemove) {
+        return false;
+      }
+      if (item.children.length > 0) {
+        item.children = removeItemRecursively(item.children, keyToRemove);
+      }
+      return true;
+    });
+  };
   useEffect(() => {
-    console.log(itemList);
-  }, [itemList]);
-  useEffect(()=>{
-    if(text!=="")
-    setStatus(false)
-  },[text])
+    if (text !== "") setStatus(false);
+  }, [text]);
 
   return (
     <>
@@ -246,7 +365,7 @@ const App: React.FC = () => {
             <Input
               type="text"
               required
-              status={status?"error":""}
+              status={status ? "error" : ""}
               value={text}
               style={{ width: 200 }}
               placeholder="Enter Field"
@@ -255,14 +374,13 @@ const App: React.FC = () => {
               }}
             />
             <Select
-              name="select"
               value={option}
               onChange={(value) => setOption(value)}
               style={{ width: 200 }}
             >
-              <Option value="number">number</Option>
-              <Option value="string">string</Option>
-              <Option value="nested">nested</Option>
+              <Select.Option value="number">number</Select.Option>
+              <Select.Option value="string">string</Select.Option>
+              <Select.Option value="nested">nested</Select.Option>
             </Select>
             <Form.Item style={{ flex: 1 }}>
               <Button danger onClick={() => handleRemoveItem(0)} block>
@@ -282,13 +400,17 @@ const App: React.FC = () => {
               <Button
                 type="primary"
                 onClick={() => {
-                  if(text===""){
-                    setStatus(true)
-                    alert("Text missing")
+                  if (text === "") {
+                    setStatus(true);
+                    openNotificationWithIcon(
+                      "error",
+                      "Missing field",
+                      "Field information is empty"
+                    );
                     return;
                   }
-                  setStatus(false)
-                  handleAddItem(null, option)
+                  setStatus(false);
+                  handleAddItem(null, option, text);
                 }}
                 block
                 style={{ width: "100%" }}
@@ -300,7 +422,8 @@ const App: React.FC = () => {
           </Space>
         </div>
       </Form>
-      <pre>{jsonView}</pre>
+      <pre style={jsonViewStyle}>{jsonView}</pre>
+      {contextHolder}
     </>
   );
 };
